@@ -16,6 +16,7 @@ import hmac
 import binascii
 from struct import pack, unpack
 import warnings
+from sys import stdout
 
 
 def prf( h, data ):
@@ -36,11 +37,11 @@ def xorstr( a, b ):
 def pbkdf2_F( h, salt, itercount, blocknum ):
 	U = prf( h, salt + pack('>i',blocknum ) )
 	T = U
-
+	spinner = "  -\|/ "
 	for i in range(2, itercount+1):
+		stdout.write("\b"+spinner[(i%5)+1])
 		U = prf( h, U )
 		T = xorstr( T, U )
-
 	return T
 
 def pbkdf(password, salt, itercount=10**5, keylen=32, hashfn = SHA256):
