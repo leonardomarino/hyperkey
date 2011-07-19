@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """ hyperkey - a generative approach to password management
 
-  Generate a password given:
+  Generates a password given:
 
   * Seed file
   * Service identifier (login, whatever)
@@ -10,6 +10,8 @@
 DEBUG = False
 from hashlib import sha256
 from getpass import getpass
+from urllib2 import urlopen
+from StringIO import StringIO
 import random
 import string
 from pbkdf import pbkdf
@@ -27,14 +29,14 @@ from sys import argv
 
 
 print "[*] hyperkey 0.2 - a thoughtcrime project"
-# policy: (length, uppercase, numeric, symbol, secure)
-green =  ( 8, 2, 1, 0, False)
-yellow = (12, 2, 2, 1, False)
-red =    (24, 8, 3, 3, False)
+# policy: (length, uppercase, numeric, symbol, workfactor, secure)
+green =  ( 8, 2, 1, 0, 7, False)
+yellow = (12, 2, 2, 1, 9, True)
+red =    (24, 8, 3, 3, 10, True)
 
 def generate(policy):
     u,n,s = 0,0,0
-    length, uppercase, numeric, symbols, secure = policy
+    length, uppercase, numeric, symbols, iterations, secure = policy
     while (u, n, s) != (uppercase, numeric, symbols):
         p = ""
         u, n, s = 0,0,0 
@@ -59,7 +61,11 @@ def generate(policy):
 
 filename = argv[1]
 try:
-    f = open(argv[1])
+    if filename[:4] == "http":
+        print "[!] retreiving seedfile via http"
+        f = StringIO(urlopen(filename).read())
+    else:
+        f = open(filename)
     if argv[2].lower()  in ["green", "yellow", "red"]:
         exec "policy = %s"%argv[2].lower()
     else:
@@ -74,24 +80,21 @@ except:
     raise SystemExit
 
 passphrase = getpass("[?] passphrase: ")
-if DEBUG: pdb.set_trace()
+itercount = policy[4]**5
+
 salt = f.read(8)
-print "[+] hashing: ",
+print "[+] hashing:",
 s = sha256("".join(f.readlines()))
-print "done. iterating:  ",
-if DEBUG: pdb.set_trace()
-s.update(pbkdf(service, salt))
-if DEBUG: pdb.set_trace()
-s.update(pbkdf(passphrase, salt))
+print "done.\n[+] iterating: ",
+s.update(pbkdf(service, salt, itercount))
+s.update(pbkdf(passphrase, salt, itercount))
 print "done."
 random.seed(int(s.hexdigest(),16))
 
-print "[+] generating:",
 p = generate(policy)
-print "done."
 
 print "[!] generated password: %s"%p
 if clipboard:
     pyperclip.setcb(p)
     print "[+] copied to clipboard"
-print "[/] we're done here"
+print "[!] we're done here"
