@@ -37,10 +37,15 @@ def xorstr( a, b ):
 def pbkdf2_F( h, salt, itercount, blocknum ):
 	U = prf( h, salt + pack('>i',blocknum ) )
 	T = U
-	spinner = "  -\|/ "
+	spinner = "-\|/"
 	stdout.write(" ")
+	c, s = 0,0 
 	for i in range(2, itercount+1):
-		stdout.write("\b"+spinner[(i%5)+1])
+		c += 1
+		if c == 2500:
+			c = 0
+			s += 1
+			stdout.write("\b"+spinner[s%4])
 		U = prf( h, U )
 		T = xorstr( T, U )
 	stdout.write("\b")
