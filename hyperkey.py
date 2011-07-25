@@ -27,14 +27,18 @@ except:
 
 from sys import argv
 
-
-print "[*] hyperkey 0.2 - a thoughtcrime project"
 # policy: (length, uppercase, numeric, symbol, workfactor, secure)
 green =  ( 8, 2, 1, 0, 7, False)
 yellow = (12, 2, 2, 1, 9, True)
 red =    (24, 8, 3, 3, 10, True)
 
-def generate(policy):
+def _print(x):
+    print x
+
+def _noprint(x):
+    pass
+
+def pwgen(policy):
     u,n,s = 0,0,0
     length, uppercase, numeric, symbols, iterations, secure = policy
     while (u, n, s) != (uppercase, numeric, symbols):
@@ -59,42 +63,50 @@ def generate(policy):
             p += random.choice(string.lowercase)
     return p
 
-filename = argv[1]
-try:
-    if filename[:4] == "http":
-        print "[!] retreiving seedfile via http"
-        f = StringIO(urlopen(filename).read())
-    else:
-        f = open(filename)
-    if argv[2].lower()  in ["green", "yellow", "red"]:
-        exec "policy = %s"%argv[2].lower()
-    else:
-        print "[!] policy defaulting to green"
-        policy = green
-    if len(argv) == 3:
-        service = getpass("service:")
-    else:
-        service = argv[3]
-except:
-    print "[?] usage: hyperkey seedfile policy [service]"
-    raise SystemExit
+def main(argv, output=_print, passphrase=True):
+    try:
+        filename = argv[1]
+        if filename[:4] == "http":
+            print "[!] retreiving seedfile via http"
+            f = StringIO(urlopen(filename).read())
+        else:
+            f = open(filename)
+        if argv[2].lower()  in ["green", "yellow", "red"]:
+            exec "policy = %s"%argv[2].lower()
+        else:
+            print "[!] policy defaulting to green"
+            policy = green
+        if len(argv) >= 4:
+            service = argv[3]
+        else:
+            service = getpass("service:")
+        if len(argv) == 6:
+            passphrase = argv[5]
+        else:
+            passphrase = getpass("[?] passphrase: ")
+    except:
+        print "[?] usage: hyperkey seedfile policy [service]"
+        raise SystemExit
+    itercount = policy[4]**5
 
-passphrase = getpass("[?] passphrase: ")
-itercount = policy[4]**5
+    salt = f.read(8)
+    print "[+] hashing:",
+    s = sha256("".join(f.readlines()))
+    print "done."
+    print "[+] iterating: ",
+    s.update(pbkdf(service, salt, itercount))
+    s.update(pbkdf(passphrase, salt, itercount))
+    print "done."
+    random.seed(int(s.hexdigest(),16))
 
-salt = f.read(8)
-print "[+] hashing:",
-s = sha256("".join(f.readlines()))
-print "done.\n[+] iterating: ",
-s.update(pbkdf(service, salt, itercount))
-s.update(pbkdf(passphrase, salt, itercount))
-print "done."
-random.seed(int(s.hexdigest(),16))
+    p = pwgen(policy)
 
-p = generate(policy)
+    print "[!] generated password: %s"%p
+    if clipboard:
+        pyperclip.setcb(p)
+        print "[+] copied to clipboard"
+    print "[!] we're done here"
+    return p
 
-print "[!] generated password: %s"%p
-if clipboard:
-    pyperclip.setcb(p)
-    print "[+] copied to clipboard"
-print "[!] we're done here"
+if __name__ == "__main__":
+    p = main(argv)

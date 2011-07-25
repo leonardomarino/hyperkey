@@ -45,7 +45,7 @@ def pbkdf2_F( h, salt, itercount, blocknum ):
 		if c == 2500:
 			c = 0
 			s += 1
-			stdout.write("\b"+spinner[s%4])
+			stdout.write("\b"+spinner[s%len(spinner)])
 		U = prf( h, U )
 		T = xorstr( T, U )
 	stdout.write("\b")
