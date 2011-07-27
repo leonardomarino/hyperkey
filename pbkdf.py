@@ -11,7 +11,7 @@ original : http://matt.ucc.asn.au/src/pbkdf2.py
 # purpose.
 """
 
-from Crypto.Hash import SHA256
+from hashlib import sha256 as SHA256
 import hmac
 import binascii
 from struct import pack, unpack
@@ -54,12 +54,12 @@ def pbkdf2_F( h, salt, itercount, blocknum ):
 def pbkdf(password, salt, itercount=10**5, keylen=32, hashfn = SHA256):
         """ callme """
         warnings.simplefilter("ignore", RuntimeWarning,0)
-        digest_size = hashfn.digest_size
+        digest_size = 32
 	# l - number of output blocks to produce
 	l = keylen / digest_size
 	if keylen % digest_size != 0:
 		l += 1
-	h = hmac.new( password, None, hashfn )
+	h = hmac.new( str(password), None, hashfn )
 	T = ""
 	for i in range(1, l+1):
 		T += pbkdf2_F( h, salt, itercount, i )

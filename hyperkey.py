@@ -15,6 +15,7 @@ from StringIO import StringIO
 import random
 import string
 from pbkdf import pbkdf
+import sys
 
 if DEBUG:
     import pdb
@@ -24,6 +25,13 @@ try:
     clipboard = True
 except:
     clipboard = False
+
+try:
+    import android
+    droid = android.Android()
+    Droid = True
+except :
+    Droid = False
 
 from sys import argv
 
@@ -63,7 +71,8 @@ def pwgen(policy):
             p += random.choice(string.lowercase)
     return p
 
-def main(argv, output=_print, passphrase=True):
+def main(argv, output=_print, passphrase=True, clipboard=clipboard):
+    print "[!] this is hyperkey, a thoughtcrime project"
     try:
         filename = argv[1]
         if filename[:4] == "http":
@@ -80,12 +89,12 @@ def main(argv, output=_print, passphrase=True):
             service = argv[3]
         else:
             service = getpass("service:")
-        if len(argv) == 6:
-            passphrase = argv[5]
+        if len(argv) == 5:
+            passphrase = argv[4]
         else:
             passphrase = getpass("[?] passphrase: ")
     except:
-        print "[?] usage: hyperkey seedfile policy [service]"
+        print "[?] usage: hyperkey seedfile policy [service] [passphrase]"
         raise SystemExit
     itercount = policy[4]**5
 
@@ -108,5 +117,48 @@ def main(argv, output=_print, passphrase=True):
     print "[!] we're done here"
     return p
 
+def droidMain():
+    """shitty droid frontend"""
+
+    droid.dialogCreateAlert("Policy")
+    policies = ["green", "yellow", "red"]
+    droid.dialogSetItems(policies)
+    droid.dialogSetPositiveButtonText("OK")
+    droid.dialogShow()
+    result = droid.dialogGetResponse().result
+    policy = policies[result['item']]
+
+    
+    droid.dialogGetPassword("","Service ID:")
+    droid.dialogSetPositiveButtonText("OK")
+    droid.dialogShow()
+    result = droid.dialogGetResponse().result
+    if result['which'] == 'positive':
+        sid = result['value']
+    else:
+        sys.exit()
+    
+    droid.dialogGetPassword("","Passphrase")
+    droid.setPositiveButtonText("OK")
+    droid.dialogShow()
+    result = droid.dialogGetResponse().result
+    if result['which'] == 'positive':
+        pw = result['value']
+    else:
+        raise SystemExit
+
+    droid.dialogCreateSpinnerProgress("Hashing...")
+    droid.dialogShow()
+    p = main([str("hyperkey"), str("/sdcard/sl4a/scripts/hyperkey.py"), str(policy), str(sid), str(pw)])
+    droid.dialogDismiss()
+
+    droid.setClipboard(p)
+    droid.dialogCreateAlert("Copied to Clipboard","\n%s\n"%p)
+    droid.dialogSetPositiveButtonText("w00t")
+    droid.dialogShow()
+    result = droid.dialogGetResponse()
+    sys.exit()
+
 if __name__ == "__main__":
-    p = main(argv)
+    p = main(argv) if not Droid else droidMain()
+    raise SystemExit 

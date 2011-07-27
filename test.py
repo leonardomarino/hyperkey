@@ -1,8 +1,9 @@
 #!/usr/bin/python
 
 from hyperkey import main
-
-p = main(["hyperkey","./test.txt", "red", "gmail", "this is the oficial test of hyperkey", "iamastrangeloop"],passphrase=False)
+args = ["hyperkey","./test.txt", "red", "gmail", "iamastrangeloop"]
+print len(args)
+p = main(args, passphrase=False, clipboard=False)
 
 try:
     assert p == "lt*xCy2tw/IoAXKO8Zld_Jy8"
