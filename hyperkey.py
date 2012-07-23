@@ -79,7 +79,7 @@ def main(argv, output=_print, passphrase=True, clipboard=clipboard):
             print "[!] retreiving seedfile via http"
             f = StringIO(urlopen(filename).read())
         else:
-            f = open(filename)
+            f = StringIO(open(filename,"rb").read())
         if argv[2].lower()  in ["green", "yellow", "red"]:
             exec "policy = %s"%argv[2].lower()
         else:
@@ -100,7 +100,7 @@ def main(argv, output=_print, passphrase=True, clipboard=clipboard):
 
     salt = f.read(8)
     print "[+] hashing:",
-    s = sha256("".join(f.readlines()))
+    s = sha256(f.read())
     print "done."
     print "[+] iterating: ",
     s.update(pbkdf(service, salt, itercount))
