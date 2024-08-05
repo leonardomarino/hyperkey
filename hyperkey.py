@@ -10,8 +10,8 @@
 DEBUG = False
 from hashlib import sha256
 from getpass import getpass
-from urllib2 import urlopen
-from StringIO import StringIO
+from urllib.request import urlopen
+from io import BytesIO
 import random
 import string
 from pbkdf import pbkdf
@@ -36,12 +36,18 @@ except :
 from sys import argv
 
 # policy: (length, uppercase, numeric, symbol, workfactor, secure)
+policies = {
+    "green": ( 8, 2, 1, 0, 7, False),
+    "yellow": (12, 2, 2, 1, 9, True),
+    "red": (24, 8, 3, 3, 10, True)
+}
+
 green =  ( 8, 2, 1, 0, 7, False)
 yellow = (12, 2, 2, 1, 9, True)
 red =    (24, 8, 3, 3, 10, True)
 
 def _print(x):
-    print x
+    print(x)
 
 def _noprint(x):
     pass
@@ -72,18 +78,19 @@ def pwgen(policy):
     return p
 
 def main(argv, output=_print, passphrase=True, clipboard=clipboard):
-    print "[!] this is hyperkey, a thoughtcrime project"
-    try:
+    print("[!] this is hyperkey, a thoughtcrime project")
+    for i in range(1):
+    # try:
         filename = argv[1]
         if filename[:4] == "http":
-            print "[!] retreiving seedfile via http"
-            f = StringIO(urlopen(filename).read())
+            print("[!] retreiving seedfile via http")
+            f = BytesIO(urlopen(filename).read())
         else:
-            f = StringIO(open(filename,"rb").read())
-        if argv[2].lower()  in ["green", "yellow", "red"]:
-            exec "policy = %s"%argv[2].lower()
+            f = BytesIO(open(filename,"rb").read())
+        if argv[2].lower() in ["green", "yellow", "red"]:
+            policy = policies[argv[2].lower()]
         else:
-            print "[!] policy defaulting to green"
+            print("[!] policy defaulting to green")
             policy = green
         if len(argv) >= 4:
             service = argv[3]
@@ -93,28 +100,28 @@ def main(argv, output=_print, passphrase=True, clipboard=clipboard):
             passphrase = argv[4]
         else:
             passphrase = getpass("[?] passphrase: ")
-    except:
-        print "[?] usage: hyperkey seedfile policy [service] [passphrase]"
-        raise SystemExit
+    # except:
+    #     print("[?] usage: hyperkey seedfile policy [service] [passphrase]")
+    #     raise SystemExit
     itercount = policy[4]**5
 
     salt = f.read(8)
-    print "[+] hashing:",
+    print("[+] hashing:", end=' ')
     s = sha256(f.read())
-    print "done."
-    print "[+] iterating: ",
+    print("done.")
+    print("[+] iterating: ", end=' ')
     s.update(pbkdf(service, salt, itercount))
     s.update(pbkdf(passphrase, salt, itercount))
-    print "done."
+    print("done.")
     random.seed(int(s.hexdigest(),16))
 
     p = pwgen(policy)
 
-    print "[!] generated password: %s"%p
+    print("[!] generated password: %s"%p)
     if clipboard:
         pyperclip.setcb(p)
-        print "[+] copied to clipboard"
-    print "[!] we're done here"
+        print("[+] copied to clipboard")
+    print("[!] we're done here")
     return p
 
 def droidMain():
