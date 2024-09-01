@@ -14,7 +14,7 @@ from urllib.request import urlopen
 from io import BytesIO
 import random
 import string
-from pbkdf import pbkdf
+from pbkdf2 import pbkdf2
 import sys
 
 if DEBUG:
@@ -66,7 +66,7 @@ def pwgen(policy):
                     continue
             if u != uppercase or secure:
                 if random.randrange(0,5) == 4:
-                    p += random.choice(string.uppercase)
+                    p += random.choice(string.ascii_uppercase)
                     u += 1
                     continue
             if n != numeric or secure:
@@ -74,7 +74,7 @@ def pwgen(policy):
                     p += random.choice(string.digits)
                     n += 1
                     continue
-            p += random.choice(string.lowercase)
+            p += random.choice(string.ascii_lowercase)
     return p
 
 def main(argv, output=_print, passphrase=True, clipboard=clipboard):
@@ -110,8 +110,8 @@ def main(argv, output=_print, passphrase=True, clipboard=clipboard):
     s = sha256(f.read())
     print("done.")
     print("[+] iterating: ", end=' ')
-    s.update(pbkdf(service, salt, itercount))
-    s.update(pbkdf(passphrase, salt, itercount))
+    s.update(pbkdf2(sha256, bytes(service, "utf-8"), salt, itercount, 24))
+    s.update(pbkdf2(sha256, bytes(passphrase, "utf-8"), salt, itercount, 24))
     print("done.")
     random.seed(int(s.hexdigest(),16))
 
