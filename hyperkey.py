@@ -42,10 +42,6 @@ policies = {
     "red": (24, 8, 3, 3, 10, True)
 }
 
-green =  ( 8, 2, 1, 0, 7, False)
-yellow = (12, 2, 2, 1, 9, True)
-red =    (24, 8, 3, 3, 10, True)
-
 def _print(x):
     print(x)
 
@@ -91,7 +87,7 @@ def main(argv, output=_print, passphrase=True, clipboard=clipboard):
             policy = policies[argv[2].lower()]
         else:
             print("[!] policy defaulting to green")
-            policy = green
+            policy = policies["green"]
         if len(argv) >= 4:
             service = argv[3]
         else:
