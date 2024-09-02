@@ -75,8 +75,7 @@ def pwgen(policy):
 
 def main(argv, output=_print, passphrase=True, clipboard=clipboard):
     print("[!] this is hyperkey, a thoughtcrime project")
-    for i in range(1):
-    # try:
+    try:
         filename = argv[1]
         if filename[:4] == "http":
             print("[!] retreiving seedfile via http")
@@ -96,9 +95,9 @@ def main(argv, output=_print, passphrase=True, clipboard=clipboard):
             passphrase = argv[4]
         else:
             passphrase = getpass("[?] passphrase: ")
-    # except:
-    #     print("[?] usage: hyperkey seedfile policy [service] [passphrase]")
-    #     raise SystemExit
+    except:
+        print("[?] usage: hyperkey seedfile policy [service] [passphrase]")
+        raise SystemExit
     itercount = policy[4]**5
 
     salt = f.read(8)
