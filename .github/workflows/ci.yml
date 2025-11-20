@@ -39,15 +39,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install cryptography pyperclip # Install the required Python packages
 
-    # --- Test Setup ---
-    
-    # CRITICAL: Create the dummy seed file required by your test.py
-    - name: Create Deterministic Seed File (test.txt)
-      run: |
-        # Use /dev/urandom to fill the file with 32 random bytes
-        head -c 32 /dev/urandom > test.txt
-        echo "Seed file created successfully."
-
     # --- Run Tests ---
     
     - name: Run Deterministic Test Suite
