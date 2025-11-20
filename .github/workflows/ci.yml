@@ -1,0 +1,56 @@
+name: Python CI - Hyperkey
+
+on:
+  # Trigger the workflow on pushes and pull requests to the main branches
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build:
+    # Use a fresh Ubuntu environment for each job
+    runs-on: ubuntu-latest
+    
+    # Test against multiple Python versions concurrently
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.10", "3.12"]
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    # --- Dependencies ---
+    
+    # Cryptography requires OpenSSL and libffi development headers on Linux runners
+    - name: Install System Dependencies for Cryptography
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev libffi-dev
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install cryptography pyperclip # Install the required Python packages
+
+    # --- Test Setup ---
+    
+    # CRITICAL: Create the dummy seed file required by your test.py
+    - name: Create Deterministic Seed File (test.txt)
+      run: |
+        # Use /dev/urandom to fill the file with 32 random bytes
+        head -c 32 /dev/urandom > test.txt
+        echo "Seed file created successfully."
+
+    # --- Run Tests ---
+    
+    - name: Run Deterministic Test Suite
+      # This executes your provided test.py script
+      run: |
+        python3 test.py
