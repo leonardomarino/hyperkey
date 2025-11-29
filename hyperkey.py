@@ -228,7 +228,7 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
     print("done.")
 
     # 3. Combine Entropy (HMAC-SHA512)
-    h = hmac.HMAC(k1 + k2, hashes.SHA512())
+    h = hmac.HMAC(k1 + k2, hashes.SHA3_512())
     h.update(seed_digest)
     master_secret = h.finalize()
 
