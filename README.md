@@ -15,7 +15,7 @@ If you lose your database in a traditional manager, you lose your passwords. Wit
 * **Robust Cryptography:**
     * **Algorithm:** Uses **Scrypt** (Memory-Hard) for key derivation to neutralize GPU/ASIC cracking attacks.
     * **Entropy Source:** Replaces Python's standard random generator with a **ChaCha20 Stream Cipher DRBG**.
-    * **Hashing:** Uses **HMAC-SHA512** for mixing entropy sources.
+    * **Hashing:** Uses **SHA-3-512 (Keccak)** and **HMAC-SHA-3** for mixing entropy sources, providing immunity to length-extension attacks.
 * **Deterministic:** The same inputs (*Seed File + Service Name + Passphrase*) always produce the exact same password.
 * **Stateless:** No database file to sync, back up, or lose.
 * **Cross-Platform:** Works on macOS (Apple Silicon optimized), Linux, and Windows.
