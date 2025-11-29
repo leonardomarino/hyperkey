@@ -212,7 +212,7 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
 
     # 1. Initial Hash
     print(f"[+] hashing seed...", end='', flush=True)
-    seed_hash = hashes.Hash(hashes.SHA512())
+    seed_hash = hashes.Hash(hashes.SHA3_512())
     seed_hash.update(seed_rest)
     seed_digest = seed_hash.finalize()
     print("done.")
