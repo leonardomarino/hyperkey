@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-""" hyperkey - SOTA Password Generator (Scrypt + ChaCha20-DRBG)
+""" hyperkey - SOTA Password Generator (Scrypt + SHA-3 + ChaCha20-DRBG)
     Optimized for Apple Silicon (M-Series)
 """
 
@@ -35,23 +35,11 @@ from sys import argv
 
 # Policy: (length, uppercase, numeric, symbol, scrypt_cost_power, secure)
 # scrypt_cost_power: Power of 2 for 'N' parameter (Memory Cost).
-# Green  (15) = 32MB  | 14 chars (Modern Baseline)
-# Yellow (16) = 64MB  | 20 chars (Strong)
-# Red    (17) = 128MB | 32 chars (Paranoid)
-# Legacy (15) = 32MB  | 8 chars  (Only for old systems with length limits)
-
+# Green (15) = 32MB, Yellow (16) = 64MB, Red (17) = 128MB.
 POLICIES = {
-    # "Green": 14 chars. Enough for 99% of sites, very strong against brute force.
     "green": (14, 2, 2, 1, 15, False),
-
-    # "Yellow": 20 chars. Excellent for banking/crypto logins.
     "yellow": (20, 4, 4, 2, 16, True),
-
-    # "Red": 32 chars. Maximum security. 
-    # Increased symbols to 4 to ensure high entropy density.
     "red": (32, 8, 6, 4, 17, True),
-    
-    # "Legacy": 8 chars. Keep this only for dumb websites that limit passwords to 8-10 chars.
     "legacy": (8, 2, 2, 1, 15, False)
 }
 
@@ -64,8 +52,9 @@ class CryptoRNG:
     """
     def __init__(self, master_secret):
         # 1. Expand master secret into Key (32 bytes) and Nonce (16 bytes)
+        # UPGRADE: Using SHA-3-512 for the HKDF expansion
         hkdf = HKDF(
-            algorithm=hashes.SHA512(),
+            algorithm=hashes.SHA3_512(),
             length=48,
             salt=None,
             info=b'hyperkey-drbg-setup',
@@ -111,11 +100,8 @@ def derive_master_key(password, salt, cost_power):
     Memory-Hard Key Derivation Function.
     
     Uses hashlib.scrypt (OpenSSL backed).
-    - n: 2^cost_power (Memory Cost)
-    - r: 8 (Block size)
-    - p: 1 (Parallelism)
-    - maxmem: Set to 1GB (1073741824 bytes). 
-              This allows Red policy (128MB) but stays under the 2GB signed integer limit.
+    Note: Scrypt uses SHA-256 internally per RFC 7914.
+    We mitigate this by sandwiching it with SHA-3 operations externally.
     """
     n_val = 2 ** cost_power
     
@@ -126,7 +112,7 @@ def derive_master_key(password, salt, cost_power):
         r=8,       
         p=1,       
         dklen=64,
-        maxmem=1024 * 1024 * 1024 # FIX: Set to 1GB to avoid overflow
+        maxmem=1024 * 1024 * 1024 # 1GB Limit
     )
 
 
@@ -169,7 +155,7 @@ def pwgen(policy, rng):
 
 
 def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLED):
-    output("[!] HyperKey (SOTA): Scrypt + ChaCha20-DRBG")
+    output("[!] HyperKey (SOTA): Scrypt + SHA-3 + ChaCha20-DRBG")
     try:
         filename = argv[1]
         
@@ -207,26 +193,19 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
     # CONFIG: Scrypt Cost (Power of 2)
     cost_power = policy[4]
     
-    # Hash the WHOLE file first using SHA-3-512.
-    # This ensures the Salt is derived from the unique content, not the file type header.
-    
-    print(f"[+] processing seed file (SHA-3-512)...", end='', flush=True)
+    # 1. Entropy Collection (Hash-then-Split)
+    print(f"[+] hashing seed (SHA-3)...", end='', flush=True)
     seed_content = seed_data.read()
-    
     file_hasher = hashes.Hash(hashes.SHA3_512())
     file_hasher.update(seed_content)
     full_file_digest = file_hasher.finalize()
     print("done.")
 
-    # Split the 64-byte digest:
-    # 1. First 16 bytes -> Salt for Scrypt (Guaranteed high entropy)
+    # Split: First 16 bytes for salt, rest for secret
     salt = full_file_digest[:16]
-    
-    # 2. Remaining 48 bytes -> Secret for HMAC mixing
     seed_digest = full_file_digest[16:]
 
     # 2. Derive Keys (Scrypt)
-    # Display actual RAM usage: 128 * N * r bytes (roughly)
     ram_mb = (128 * (2**cost_power) * 8) / (1024*1024)
     print(f"[+] deriving keys (Scrypt, N=2^{cost_power}, ~{int(ram_mb)}MB RAM)...", end='', flush=True)
     
@@ -235,12 +214,13 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
     
     print("done.")
 
-    # 3. Combine Entropy (HMAC-SHA512)
+    # 3. Combine Entropy (HMAC-SHA-3-512)
+    # UPGRADE: Using HMAC-SHA-3-512 for mixing
     h = hmac.HMAC(k1 + k2, hashes.SHA3_512())
     h.update(seed_digest)
     master_secret = h.finalize()
 
-    # 4. Initialize RNG (ChaCha20 Stream)
+    # 4. Initialize RNG (ChaCha20 Stream) with SHA-3 HKDF
     rng = CryptoRNG(master_secret)
 
     # 5. Generate Password
