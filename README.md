@@ -95,15 +95,16 @@ The policy determines the password length, complexity, and the computational "Co
 HyperKey implements a "Stateless Password Manager" model using the following cryptographic pipeline:
 
 1. **Entropy Collection:**
-   - Reads 16 bytes from the Seed File to use as a Salt.
-   - Hashes the entire Seed File content using SHA-512.
+   - Hashes the entire Seed File using SHA-3-512 to ensure uniform entropy distribution.
+   - Extracts the first 16 bytes of the hash to use as a unique Salt (avoiding file header/magic byte collisions).
+   - Uses the remaining hash bytes as the secret for the final mixing step.
 
 2. **Key Derivation (KDF):**
    - Uses Scrypt to derive keys from the Service Name and Passphrase.
    - Scrypt Parameters: N=2¹⁵⁻¹⁷, r=8, p=1. This forces the attacker to use massive amounts of RAM for every single guess, making GPU cracking economically unfeasible.
 
 3. **Mixing:**
-   - Uses HMAC-SHA512 to combine the file hash and derived keys into a single 512-bit Master Secret.
+   - Uses HMAC-SHA-3-512 to combine the file hash and derived keys into a single 512-bit Master Secret.
 
 4. **Deterministic Generation (DRBG):**
    - Initializes a ChaCha20 stream cipher using the Master Secret.
@@ -132,7 +133,7 @@ Service: gmail
 Passphrase: iamastrangeloop
 
 # Expected output
-Expected: "Jp5IcAmgTV9Nh%md2lo2_oD!sn32/Bzr"
+Expected: ';m8la,ehNVX|mswKjG32i6aTIgAi@7g7'
 ```
 
 If the test passes, you'll see:
@@ -154,4 +155,4 @@ This project is licensed under the GPLv3 License. See the [LICENSE](LICENSE) fil
 
 ## ⚠️ Disclaimer
 
-This tool is provided "as is" without warranty of any kind. While it uses industry-standard cryptographic primitives (Scrypt, ChaCha20, SHA-512), you are responsible for the safe storage of your Seed File and Passphrase. **If you lose your Seed File, your passwords cannot be recovered.** Backup your seed file securely!
+This tool is provided "as is" without warranty of any kind. While it uses industry-standard cryptographic primitives (Scrypt, ChaCha20, SHA-3-512), you are responsible for the safe storage of your Seed File and Passphrase. **If you lose your Seed File, your passwords cannot be recovered.** Backup your seed file securely!
