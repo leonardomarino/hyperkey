@@ -13,9 +13,10 @@ If you lose your database in a traditional manager, you lose your passwords. Wit
 ## 🚀 Features
 
 * **Robust Cryptography:**
-    * **Algorithm:** Uses **Scrypt** (Memory-Hard) for key derivation to neutralize GPU/ASIC cracking attacks.
-    * **Entropy Source:** Replaces Python's standard random generator with a **ChaCha20 Stream Cipher DRBG**.
-    * **Hashing:** Uses **SHA-3-512 (Keccak)** and **HMAC-SHA-3** for mixing entropy sources, providing immunity to length-extension attacks.
+    * **Key Derivation:** Uses **Scrypt** (Memory-Hard) to neutralize GPU/ASIC cracking attacks.
+    * **Hashing:** Uses **SHA-3-512** for seed file hashing and **HMAC-SHA-3-512** for entropy mixing.
+    * **DRBG:** Replaces Python's standard random generator with a **ChaCha20 Stream Cipher** seeded via **HKDF-SHA-3-512**.
+    * **Domain Separation:** Service and passphrase keys are derived independently with tagged inputs.
 * **Deterministic:** The same inputs (*Seed File + Service Name + Passphrase*) always produce the exact same password.
 * **Stateless:** No database file to sync, back up, or lose.
 * **Cross-Platform:** Works on macOS (Apple Silicon optimized), Linux, and Windows.
@@ -31,6 +32,7 @@ If you lose your database in a traditional manager, you lose your passwords. Wit
 * `pip` package manager
 
 ### 1. Clone the Repository
+
 ```bash
 git clone https://github.com/leonardomarino/hyperkey.git
 cd hyperkey
@@ -39,6 +41,7 @@ cd hyperkey
 ### 2. Install Dependencies
 
 It is recommended to use a virtual environment to manage dependencies:
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -50,6 +53,7 @@ pip install cryptography pyperclip
 ## 🛠️ Usage
 
 The basic command syntax is:
+
 ```bash
 ./hyperkey.py [SEED_FILE] [POLICY] [SERVICE_NAME] [PASSPHRASE]
 ```
@@ -58,35 +62,39 @@ The basic command syntax is:
 
 | Argument | Description |
 |----------|-------------|
-| `SEED_FILE` | Any file on your computer (image, song, random bytes). This acts as your "Master Key File." |
+| `SEED_FILE` | Any file on your computer (image, song, random bytes). This acts as your "Master Key File." Can also be an HTTPS URL. |
 | `POLICY` | The complexity level (`green`, `yellow`, `red`, `legacy`). |
 | `SERVICE_NAME` | The identifier for the account (e.g., `gmail`, `twitter`, `bank`). |
 | `PASSPHRASE` | Your memorized master password. (If omitted, you will be prompted securely). |
 
 ### Example
+
 ```bash
 ./hyperkey.py my_photo.jpg red google
 ```
 
 **What happens:**
 
-1. The script hashes `my_photo.jpg` and mixes it with the service name "google".
+1. The script hashes `my_photo.jpg` using SHA-3-512 and splits it into salt + seed digest.
 2. It prompts you for your passphrase (hidden input).
-3. It performs a memory-hard Scrypt calculation (using 128MB RAM for the "red" policy).
-4. It generates a 32-character complex password and automatically copies it to your clipboard.
+3. It derives two domain-separated keys using Scrypt (128MB RAM for "red" policy).
+4. It combines all entropy via HMAC-SHA-3-512 and initializes a ChaCha20 DRBG.
+5. It generates a 32-character complex password and copies it to your clipboard.
 
 ---
 
 ## 🛡️ Security Policies
 
-The policy determines the password length, complexity, and the computational "Cost" required to generate it.
+The policy determines the password length, complexity, and the computational cost required to generate it.
 
-| Policy | Length | Composition | Scrypt Cost (RAM) | Use Case |
-|--------|--------|-------------|-------------------|----------|
-| Green | 14 | Upper, Num, Sym | 2¹⁵ (32 MB) | Daily accounts, standard logins. |
-| Yellow | 20 | High Complexity | 2¹⁶ (64 MB) | Financial, Email, Important logins. |
-| Red | 32 | Extreme Complexity | 2¹⁷ (128 MB) | Root passwords, Crypto wallets, Master keys. |
-| Legacy | 8 | Upper, Num, Sym | 2¹⁵ (32 MB) | Old systems with strict length limits. |
+| Policy | Length | Min Upper | Min Numeric | Min Symbol | Scrypt Cost (RAM) | Use Case |
+|--------|--------|-----------|-------------|------------|-------------------|----------|
+| Green | 14 | 2 | 2 | 1 | 2¹⁵ (32 MB) | Daily accounts, standard logins. |
+| Yellow | 20 | 4 | 4 | 2 | 2¹⁶ (64 MB) | Financial, Email, Important logins. |
+| Red | 32 | 8 | 6 | 4 | 2¹⁷ (128 MB) | Root passwords, Crypto wallets, Master keys. |
+| Legacy | 8 | 2 | 2 | 1 | 2¹⁵ (32 MB) | Old systems with strict length limits. |
+
+**Note:** Yellow and Red policies use "secure mode" which continues sampling all character classes throughout generation, typically exceeding the minimums shown above.
 
 ---
 
@@ -94,22 +102,123 @@ The policy determines the password length, complexity, and the computational "Co
 
 HyperKey implements a "Stateless Password Manager" model using the following cryptographic pipeline:
 
-1. **Entropy Collection:**
-   - Hashes the entire Seed File using SHA-3-512 to ensure uniform entropy distribution.
-   - Extracts the first 16 bytes of the hash to use as a unique Salt (avoiding file header/magic byte collisions).
-   - Uses the remaining hash bytes as the secret for the final mixing step.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           ENTROPY SOURCES                                │
+├─────────────────┬─────────────────────┬─────────────────────────────────┤
+│   Seed File     │   Service Name      │   Passphrase                    │
+│   (any file)    │   (e.g. "gmail")    │   (memorized)                   │
+└────────┬────────┴──────────┬──────────┴──────────────┬──────────────────┘
+         │                   │                         │
+         ▼                   │                         │
+   ┌───────────┐             │                         │
+   │ SHA-3-512 │             │                         │
+   └─────┬─────┘             │                         │
+         │                   │                         │
+    ┌────┴────┐              │                         │
+    ▼         ▼              ▼                         ▼
+┌───────┐ ┌────────┐   ┌──────────┐             ┌──────────┐
+│ Salt  │ │ Seed   │   │ Scrypt   │             │ Scrypt   │
+│(16 B) │ │ Digest │   │ (k1)     │             │ (k2)     │
+└───┬───┘ └────┬───┘   │ domain:  │             │ domain:  │
+    │          │       │ service  │             │ passphrase│
+    │          │       └────┬─────┘             └─────┬────┘
+    │          │            │                        │
+    │          │            └───────────┬────────────┘
+    │          │                        │
+    │          │                        ▼
+    │          │              ┌───────────────────┐
+    │          └─────────────►│ HMAC-SHA-3-512    │
+    │                         │ key = k1 || k2    │
+    │                         └─────────┬─────────┘
+    │                                   │
+    │                                   ▼
+    │                         ┌───────────────────┐
+    │                         │  Master Secret    │
+    │                         │    (64 bytes)     │
+    │                         └─────────┬─────────┘
+    │                                   │
+    │                                   ▼
+    │                         ┌───────────────────┐
+    │                         │ HKDF-SHA-3-512    │
+    │                         │ info: drbg-setup  │
+    │                         └─────────┬─────────┘
+    │                                   │
+    │                              ┌────┴────┐
+    │                              ▼         ▼
+    │                         ┌───────┐ ┌───────┐
+    │                         │ Key   │ │ Nonce │
+    │                         │(32 B) │ │(16 B) │
+    │                         └───┬───┘ └───┬───┘
+    │                             │         │
+    │                             └────┬────┘
+    │                                  ▼
+    │                         ┌───────────────────┐
+    │                         │    ChaCha20       │
+    │                         │     DRBG          │
+    │                         └─────────┬─────────┘
+    │                                   │
+    │                                   ▼
+    │                         ┌───────────────────┐
+    │                         │ Password Generator│
+    │                         │ (rejection sample)│
+    │                         └─────────┬─────────┘
+    │                                   │
+    │                                   ▼
+    │                            ┌────────────┐
+    └─────────(salt)────────────►│  PASSWORD  │
+                                 └────────────┘
+```
 
-2. **Key Derivation (KDF):**
-   - Uses Scrypt to derive keys from the Service Name and Passphrase.
-   - Scrypt Parameters: N=2¹⁵⁻¹⁷, r=8, p=1. This forces the attacker to use massive amounts of RAM for every single guess, making GPU cracking economically unfeasible.
+### Cryptographic Components
 
-3. **Mixing:**
-   - Uses HMAC-SHA-3-512 to combine the file hash and derived keys into a single 512-bit Master Secret.
+1. **Entropy Collection (SHA-3-512):**
+   - Hashes the entire Seed File using SHA-3-512.
+   - Splits the 64-byte digest: first 16 bytes for salt, remaining 48 bytes for seed digest.
 
-4. **Deterministic Generation (DRBG):**
-   - Initializes a ChaCha20 stream cipher using the Master Secret.
-   - Generates an infinite stream of cryptographically secure random bytes.
-   - Uses these bytes to select password characters based on the chosen Policy.
+2. **Key Derivation (Scrypt with Domain Separation):**
+   - Derives `k1` from `hyperkey-service:<service_name>` with the salt.
+   - Derives `k2` from `hyperkey-passphrase:<passphrase>` with the salt.
+   - Scrypt Parameters: N=2¹⁵⁻¹⁷, r=8, p=1, dklen=64.
+   - Domain separation ensures that even identical service/passphrase inputs produce independent keys.
+
+3. **Entropy Mixing (HMAC-SHA-3-512):**
+   - Combines k1, k2, and seed digest via HMAC-SHA-3-512.
+   - Produces a 64-byte Master Secret.
+
+4. **DRBG Initialization (HKDF + ChaCha20):**
+   - Expands Master Secret via HKDF-SHA-3-512 into 32-byte key + 16-byte nonce.
+   - Initializes ChaCha20 stream cipher as a deterministic random bit generator.
+
+5. **Password Generation:**
+   - Uses unbiased rejection sampling to select characters.
+   - Ensures minimum character class requirements are met.
+   - Secure mode (Yellow/Red) continues sampling all classes for higher entropy.
+
+---
+
+## 🔒 Security Considerations
+
+### Why SHA-3?
+
+While Scrypt internally uses SHA-256 (per RFC 7914), we "sandwich" it with SHA-3 operations:
+- **Input:** Seed file hashed with SHA-3-512 before being split into salt/digest.
+- **Output:** Keys mixed with HMAC-SHA-3-512, then expanded with HKDF-SHA-3-512.
+
+This provides defense-in-depth against potential future weaknesses in SHA-2 family functions.
+
+### Memory Cleanup
+
+The implementation attempts to securely erase sensitive values:
+- Service name and passphrase are stored in mutable `bytearray` objects and zeroed after use.
+- Derived keys are explicitly deleted and garbage collection is triggered.
+- Note: Python's memory model makes guaranteed secure erasure impossible; this is a best-effort mitigation.
+
+### Remote Seed Files
+
+- Only HTTPS URLs are accepted for remote seed files.
+- SSL certificate verification is enforced.
+- For maximum security, use local seed files only.
 
 ---
 
@@ -119,31 +228,32 @@ HyperKey implements a "Stateless Password Manager" model using the following cry
 
 This repository includes a deterministic test suite to ensure algorithm stability across updates and platforms.
 
-**Run the test:**
 ```bash
 python3 test.py
-```
-
-The test verifies that the algorithm produces the expected deterministic output:
-```python
-# Test parameters
-Seed file: ./test.txt
-Policy: red (32 chars)
-Service: gmail
-Passphrase: iamastrangeloop
-
-# Expected output
-Expected: ';m8la,ehNVX|mswKjG32i6aTIgAi@7g7'
-```
-
-If the test passes, you'll see:
-```
-[+] Test succeeded! Output matches expected deterministic password.
 ```
 
 ### CI/CD
 
 The project uses GitHub Actions to automatically test the code against Python 3.8, 3.10, and 3.12 on every push to the main branch.
+
+---
+
+## 📋 Changelog
+
+### v2.1 (Current)
+- **SHA-3 Throughout:** Upgraded from SHA-512 to SHA-3-512 for file hashing, HMAC, and HKDF.
+- **Domain Separation:** Service and passphrase now use tagged inputs (`hyperkey-service:`, `hyperkey-passphrase:`).
+- **Improved Rejection Sampling:** Optimized random number generation to reduce bias and improve efficiency.
+- **Memory Cleanup:** Added explicit zeroing of mutable secrets and garbage collection.
+- **HTTPS Enforcement:** Remote seed files now require HTTPS with certificate verification.
+- **Better Error Handling:** Specific SSL/TLS error messages for certificate failures.
+
+### v2.0
+- Initial SHA-3 integration.
+- ChaCha20-based DRBG replacing previous implementation.
+
+### v1.x (Legacy)
+- Original implementation using SHA-512 and HMAC-SHA-512.
 
 ---
 
@@ -153,6 +263,8 @@ This project is licensed under the GPLv3 License. See the [LICENSE](LICENSE) fil
 
 ---
 
-## ⚠️ Disclaimer
+## ⚠️ Important Notes
 
-This tool is provided "as is" without warranty of any kind. While it uses industry-standard cryptographic primitives (Scrypt, ChaCha20, SHA-3-512), you are responsible for the safe storage of your Seed File and Passphrase. **If you lose your Seed File, your passwords cannot be recovered.** Backup your seed file securely!
+- **Breaking Change:** v2.x produces different passwords than v1.x due to the SHA-3 upgrade and domain separation. If you need legacy passwords, use the v1.x branch.
+- **Seed File Integrity:** Any modification to your seed file (even a single byte) will produce completely different passwords. Keep backups!
+- **Passphrase Strength:** HyperKey's security ultimately depends on your passphrase entropy. Use a strong, memorable passphrase.

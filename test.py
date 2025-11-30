@@ -13,7 +13,7 @@ p = main(args, clipboard_enabled=False)
 
 try:
     # This is the expected output string based on your original file's contents
-    expected = 'qlptj(>oD63dEVz7`&h7yWXjgsG0ID7x'
+    expected = 'lg8vRV7F0ops1!#6Vj1uK[QC;kYknzT:'
     assert p == expected
     print("\n[+] Test succeeded! Output matches expected deterministic password.")
 except AssertionError:
