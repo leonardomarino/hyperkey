@@ -207,15 +207,23 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
     # CONFIG: Scrypt Cost (Power of 2)
     cost_power = policy[4]
     
-    salt = seed_data.read(16) 
-    seed_rest = seed_data.read()
-
-    # 1. Initial Hash
-    print(f"[+] hashing seed...", end='', flush=True)
-    seed_hash = hashes.Hash(hashes.SHA3_512())
-    seed_hash.update(seed_rest)
-    seed_digest = seed_hash.finalize()
+    # Hash the WHOLE file first using SHA-3-512.
+    # This ensures the Salt is derived from the unique content, not the file type header.
+    
+    print(f"[+] processing seed file (SHA-3-512)...", end='', flush=True)
+    seed_content = seed_data.read()
+    
+    file_hasher = hashes.Hash(hashes.SHA3_512())
+    file_hasher.update(seed_content)
+    full_file_digest = file_hasher.finalize()
     print("done.")
+
+    # Split the 64-byte digest:
+    # 1. First 16 bytes -> Salt for Scrypt (Guaranteed high entropy)
+    salt = full_file_digest[:16]
+    
+    # 2. Remaining 48 bytes -> Secret for HMAC mixing
+    seed_digest = full_file_digest[16:]
 
     # 2. Derive Keys (Scrypt)
     # Display actual RAM usage: 128 * N * r bytes (roughly)
