@@ -41,7 +41,8 @@ jobs:
 
     # --- Run Tests ---
     
-    - name: Run Deterministic Test Suite
-      # This executes your provided test.py script
+    - name: Run Unit Test Suite
+      # Runs the unittest suite with verbose output
+      # The tests use mocking, so no external seed file is required.
       run: |
-        python3 test.py
+        python3 -m unittest discover -v -s tests
