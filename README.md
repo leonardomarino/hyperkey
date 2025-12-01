@@ -226,10 +226,10 @@ The implementation attempts to securely erase sensitive values:
 
 ### Running Tests
 
-This repository includes a deterministic test suite to ensure algorithm stability across updates and platforms.
+This repository includes a comprehensive unit test suite using Python's unittest framework. The tests use mocking to simulate file inputs and system dependencies, so no external seed files are required.
 
 ```bash
-python3 test.py
+python3 -m unittest discover tests
 ```
 
 ### CI/CD
