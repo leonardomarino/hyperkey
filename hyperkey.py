@@ -42,6 +42,9 @@ except ImportError:
 
 from sys import argv
 
+# Safe subset of symbols
+SAFE_SYMBOLS = '#@$%^!*+=_'
+
 # Policy: (length, uppercase, numeric, symbol, scrypt_cost_power, secure)
 # scrypt_cost_power: Power of 2 for 'N' parameter (Memory Cost).
 # Green (15) = 32MB, Yellow (16) = 64MB, Red (17) = 128MB.
@@ -201,7 +204,7 @@ def pwgen(policy, rng, max_iterations=100000):
             # Probabilistic selection with rejection sampling
             # Symbols: 10% chance when eligible
             if can_add_symbol and rng.randrange(0, 10) == 9:
-                password_chars.append(rng.choice(string.punctuation))
+                password_chars.append(rng.choice(SAFE_SYMBOLS))
                 count_symbols += 1
                 continue
             
