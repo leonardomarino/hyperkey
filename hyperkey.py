@@ -192,6 +192,7 @@ def pwgen(policy, rng, max_iterations=100000):
         count_upper = 0
         count_numeric = 0
         count_symbols = 0
+        used_symbols = set()  # Track which symbols have been used
         
         for _ in range(length):
             # Determine eligibility for each character class
@@ -201,10 +202,15 @@ def pwgen(policy, rng, max_iterations=100000):
             can_add_upper = secure_mode or (count_upper < min_uppercase)
             can_add_numeric = secure_mode or (count_numeric < min_numeric)
             
+            # Check if we still have unused symbols available
+            available_symbols = [s for s in SAFE_SYMBOLS if s not in used_symbols]
+            
             # Probabilistic selection with rejection sampling
-            # Symbols: 10% chance when eligible
-            if can_add_symbol and rng.randrange(0, 10) == 9:
-                password_chars.append(rng.choice(SAFE_SYMBOLS))
+            # Symbols: 10% chance when eligible AND unused symbols available
+            if can_add_symbol and available_symbols and rng.randrange(0, 10) == 9:
+                chosen_symbol = rng.choice(available_symbols)
+                password_chars.append(chosen_symbol)
+                used_symbols.add(chosen_symbol)
                 count_symbols += 1
                 continue
             
