@@ -3,13 +3,19 @@
 """ hyperkey - SOTA Password Generator (Scrypt + SHA-3 + ChaCha20-DRBG)
     Optimized for Apple Silicon (M-Series)
 
-    v2.2 - Latest improvements:
+    v2.3 - Latest improvements:
+    - Removed clipboard functionality for enhanced security
+    - Passwords are now only displayed on screen, not copied to clipboard
+    - Eliminates clipboard logging risks from password managers and sync services
+    - Removed Android/Termux support (was not implemented)
+    - Simplified codebase by removing ~125 lines of unused/insecure code
+
+    v2.2 - Previous improvements:
     - Added automatic clipboard clearing with configurable timeout (default: 30s)
     - New command-line options: --clipboard-timeout, --no-clipboard-clear
     - Enhanced argument parsing with argparse for better UX
-    - Countdown timer with early exit option (press Enter to skip)
 
-    v2.1 - Previous improvements:
+    v2.1 - Earlier improvements:
     - Fixed rejection sampling efficiency in CryptoRNG
     - Added domain separation for key derivation
     - Clarified password generation logic with explicit minimum vs. continue-sampling
@@ -23,9 +29,7 @@ import string
 import hashlib
 import gc
 import ssl
-import time
 import argparse
-import select
 from getpass import getpass
 from urllib.request import urlopen
 from urllib.error import URLError, HTTPError
@@ -35,20 +39,6 @@ from io import BytesIO
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-
-# Optional Imports
-try:
-    import pyperclip
-    CLIPBOARD_ENABLED = True
-except ImportError:
-    CLIPBOARD_ENABLED = False
-
-try:
-    import android
-    droid = android.Android()
-    DROID_ENABLED = True
-except ImportError:
-    DROID_ENABLED = False
 
 from sys import argv
 
@@ -264,114 +254,6 @@ def secure_zero(byte_obj):
             byte_obj[i] = 0
 
 
-def secure_clear_clipboard():
-    """
-    Clears clipboard by overwriting with empty string.
-
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        if CLIPBOARD_ENABLED:
-            pyperclip.copy("")
-            return True
-        return False
-    except Exception:
-        return False
-
-
-def clipboard_timeout_handler(timeout_seconds, output=print):
-    """
-    Countdown timer that clears clipboard after timeout.
-    Allows early exit by pressing any key.
-
-    Args:
-        timeout_seconds: Number of seconds to wait before clearing
-        output: Output function for messages (default: print)
-
-    Returns:
-        True if cleared after timeout, False if user exited early
-    """
-    output(f"[!] Clipboard will be cleared in {timeout_seconds} seconds (press Enter to exit early)")
-
-    start_time = time.time()
-    last_displayed = -1
-
-    try:
-        # Set stdin to non-blocking mode on Unix systems
-        if sys.platform != 'win32':
-            import termios
-            import tty
-
-            # Save original terminal settings
-            old_settings = termios.tcgetattr(sys.stdin)
-
-            try:
-                # Set terminal to raw mode for immediate key detection
-                tty.setraw(sys.stdin.fileno())
-
-                while True:
-                    elapsed = time.time() - start_time
-                    remaining = timeout_seconds - elapsed
-
-                    if remaining <= 0:
-                        # Timeout reached - clear clipboard
-                        output("\r[+] Clearing clipboard...                    ")
-                        secure_clear_clipboard()
-                        output("[+] Clipboard cleared")
-                        return True
-
-                    # Update countdown display (only when second changes)
-                    remaining_int = int(remaining) + 1
-                    if remaining_int != last_displayed:
-                        output(f"\r[!] Clearing in {remaining_int}s (press Enter to skip)...", end='', flush=True)
-                        last_displayed = remaining_int
-
-                    # Check for key press using select with short timeout
-                    readable, _, _ = select.select([sys.stdin], [], [], 0.1)
-                    if readable:
-                        # User pressed a key - exit early
-                        output("\r[!] Clipboard clearing cancelled by user    ")
-                        return False
-
-            finally:
-                # Restore original terminal settings
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-
-        else:
-            # Windows fallback: simpler polling-based approach
-            import msvcrt
-
-            while True:
-                elapsed = time.time() - start_time
-                remaining = timeout_seconds - elapsed
-
-                if remaining <= 0:
-                    output("\r[+] Clearing clipboard...                    ")
-                    secure_clear_clipboard()
-                    output("[+] Clipboard cleared")
-                    return True
-
-                remaining_int = int(remaining) + 1
-                if remaining_int != last_displayed:
-                    output(f"\r[!] Clearing in {remaining_int}s (press any key to skip)...", end='', flush=True)
-                    last_displayed = remaining_int
-
-                if msvcrt.kbhit():
-                    msvcrt.getch()  # Consume the key press
-                    output("\r[!] Clipboard clearing cancelled by user    ")
-                    return False
-
-                time.sleep(0.1)
-
-    except KeyboardInterrupt:
-        output("\r[!] Clipboard clearing cancelled by user    ")
-        return False
-    except Exception as e:
-        output(f"\r[!] Error during countdown: {e}            ")
-        return False
-
-
 def validate_inputs(service, passphrase, policy):
     """
     Validate inputs meet basic security and feasibility requirements.
@@ -418,8 +300,8 @@ def validate_inputs(service, passphrase, policy):
         )
 
 
-def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLED):
-    output("[!] HyperKey (SOTA v2.2): Scrypt + SHA-3 + ChaCha20-DRBG")
+def main(argv, output=print, passphrase=True):
+    output("[!] HyperKey (SOTA v2.3): Scrypt + SHA-3 + ChaCha20-DRBG")
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
@@ -428,8 +310,8 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
         epilog="""
 Examples:
   ./hyperkey.py seed.jpg green gmail
-  ./hyperkey.py seed.jpg yellow banking --clipboard-timeout 20
-  ./hyperkey.py seed.jpg red root-account --no-clipboard-clear
+  ./hyperkey.py seed.jpg yellow banking
+  ./hyperkey.py seed.jpg red root-account
   ./hyperkey.py https://example.com/seed.jpg green email
 
 Policies:
@@ -446,10 +328,6 @@ Policies:
     parser.add_argument('service', nargs='?', help='Service name (optional, will prompt if not provided)')
     parser.add_argument('passphrase_arg', nargs='?', metavar='passphrase',
                        help='Master passphrase (optional, will prompt if not provided)')
-    parser.add_argument('--clipboard-timeout', type=int, default=30, metavar='SECONDS',
-                       help='Seconds to wait before clearing clipboard (default: 30)')
-    parser.add_argument('--no-clipboard-clear', action='store_true',
-                       help='Disable automatic clipboard clearing')
 
     # Parse arguments (skip program name)
     try:
@@ -579,27 +457,6 @@ Policies:
         p = pwgen(policy, rng)
 
         output(f"[!] Generated password: {p}")
-        if clipboard_enabled:
-            try:
-                pyperclip.copy(p)
-                output("[+] Copied to clipboard")
-
-                # Handle clipboard clearing based on user preferences
-                if args.no_clipboard_clear:
-                    output("[!] WARNING: Password remains in clipboard until overwritten")
-                    output("[!] Clipboard may be logged by password managers or sync services")
-                else:
-                    # Validate timeout value
-                    timeout = max(1, min(args.clipboard_timeout, 3600))  # Clamp to 1-3600 seconds
-                    if timeout != args.clipboard_timeout:
-                        output(f"[!] WARNING: Timeout adjusted to valid range (1-3600s): {timeout}s")
-
-                    # Start countdown and clear clipboard
-                    clipboard_timeout_handler(timeout, output)
-
-            except Exception as e:
-                output(f"[!] Failed to copy to clipboard: {e}")
-
         output("[!] Done")
         return p
         
@@ -617,23 +474,6 @@ Policies:
         gc.collect()
 
 
-def droidMain():
-    """
-    Android/Termux entry point.
-
-    Note: Android support is not fully implemented in this version.
-    Use standard command-line interface instead.
-    """
-    print("[!] ERROR: Android/Termux support is not fully implemented")
-    print("[!] Please use the standard command-line interface:")
-    print("[!] ./hyperkey.py [SEED_FILE] [POLICY] [SERVICE_NAME] [PASSPHRASE]")
-    sys.exit(1)
-
-
 if __name__ == "__main__":
-    if not DROID_ENABLED:
-        p = main(argv)
-    else:
-        p = droidMain()
-
+    p = main(argv)
     sys.exit(0)
