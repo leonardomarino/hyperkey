@@ -21,6 +21,7 @@ If you lose your database in a traditional manager, you lose your passwords. Wit
 * **Stateless:** No database file to sync, back up, or lose.
 * **Cross-Platform:** Works on macOS (Apple Silicon optimized), Linux, and Windows.
 * **Secure Policies:** Pre-defined complexity rules (Green, Yellow, Red) to match different security needs.
+* **Automatic Clipboard Clearing:** Configurable timeout to automatically clear clipboard after copying password (default: 30 seconds).
 
 ---
 
@@ -55,7 +56,7 @@ pip install cryptography pyperclip
 The basic command syntax is:
 
 ```bash
-./hyperkey.py [SEED_FILE] [POLICY] [SERVICE_NAME] [PASSPHRASE]
+./hyperkey.py [SEED_FILE] [POLICY] [SERVICE_NAME] [PASSPHRASE] [OPTIONS]
 ```
 
 ### Arguments
@@ -64,13 +65,37 @@ The basic command syntax is:
 |----------|-------------|
 | `SEED_FILE` | Any file on your computer (image, song, random bytes). This acts as your "Master Key File." Can also be an HTTPS URL. |
 | `POLICY` | The complexity level (`green`, `yellow`, `red`, `legacy`). |
-| `SERVICE_NAME` | The identifier for the account (e.g., `gmail`, `twitter`, `bank`). |
-| `PASSPHRASE` | Your memorized master password. (If omitted, you will be prompted securely). |
+| `SERVICE_NAME` | The identifier for the account (e.g., `gmail`, `twitter`, `bank`). (Optional, will prompt if not provided) |
+| `PASSPHRASE` | Your memorized master password. (Optional, will prompt securely if not provided) |
 
-### Example
+### Options
 
+| Option | Description |
+|--------|-------------|
+| `--clipboard-timeout SECONDS` | Seconds to wait before automatically clearing clipboard (default: 30, range: 1-3600) |
+| `--no-clipboard-clear` | Disable automatic clipboard clearing (password remains until manually overwritten) |
+| `-h, --help` | Show help message and exit |
+
+### Examples
+
+**Basic usage:**
 ```bash
 ./hyperkey.py my_photo.jpg red google
+```
+
+**Custom clipboard timeout (20 seconds):**
+```bash
+./hyperkey.py my_photo.jpg yellow banking --clipboard-timeout 20
+```
+
+**Disable clipboard clearing:**
+```bash
+./hyperkey.py my_photo.jpg green email --no-clipboard-clear
+```
+
+**Remote seed file with custom timeout:**
+```bash
+./hyperkey.py https://example.com/seed.jpg red crypto-wallet --clipboard-timeout 10
 ```
 
 **What happens:**
@@ -80,6 +105,8 @@ The basic command syntax is:
 3. It derives two domain-separated keys using Scrypt (128MB RAM for "red" policy).
 4. It combines all entropy via HMAC-SHA-3-512 and initializes a ChaCha20 DRBG.
 5. It generates a 32-character complex password and copies it to your clipboard.
+6. It displays a countdown timer and automatically clears the clipboard after the specified timeout (default: 30 seconds).
+7. You can press Enter at any time to exit early and skip clipboard clearing.
 
 ---
 
@@ -214,6 +241,20 @@ The implementation attempts to securely erase sensitive values:
 - Derived keys are explicitly deleted and garbage collection is triggered.
 - Note: Python's memory model makes guaranteed secure erasure impossible; this is a best-effort mitigation.
 
+### Clipboard Security
+
+By default, HyperKey automatically clears the clipboard after 30 seconds to minimize password exposure:
+- A countdown timer shows the remaining time before clearing.
+- Press Enter at any time to exit early without clearing (useful if you've already pasted the password).
+- Use `--clipboard-timeout` to adjust the timeout (1-3600 seconds).
+- Use `--no-clipboard-clear` to disable automatic clearing entirely.
+
+**Important Clipboard Considerations:**
+- Some password managers and cloud sync services may log clipboard contents.
+- Clipboard history tools may store passwords even after clearing.
+- For maximum security, disable clipboard history features in your operating system.
+- The clipboard clearing feature provides an additional layer of security but is not foolproof.
+
 ### Remote Seed Files
 
 - Only HTTPS URLs are accepted for remote seed files.
@@ -240,7 +281,14 @@ The project uses GitHub Actions to automatically test the code against Python 3.
 
 ## 📋 Changelog
 
-### v2.1 (Current)
+### v2.2 (Current)
+- **Automatic Clipboard Clearing:** Added configurable timeout to automatically clear clipboard after copying password (default: 30 seconds).
+- **Clipboard Security Options:** New `--clipboard-timeout` and `--no-clipboard-clear` command-line options.
+- **Enhanced Argument Parsing:** Switched to argparse for better command-line interface and help messages.
+- **Improved User Experience:** Countdown timer with early exit option when clipboard clearing is active.
+- **Comprehensive Test Coverage:** Added 5 new tests for clipboard functionality (17 total tests).
+
+### v2.1
 - **SHA-3 Throughout:** Upgraded from SHA-512 to SHA-3-512 for file hashing, HMAC, and HKDF.
 - **Domain Separation:** Service and passphrase now use tagged inputs (`hyperkey-service:`, `hyperkey-passphrase:`).
 - **Improved Rejection Sampling:** Optimized random number generation to reduce bias and improve efficiency.

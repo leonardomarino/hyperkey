@@ -48,23 +48,32 @@ Added comprehensive `validate_inputs()` function that checks:
 
 ---
 
-### 3. Clipboard Security Warning (ENHANCED)
-**Location:** `hyperkey.py:368-372`
+### 3. Clipboard Security (FULLY IMPLEMENTED) ✓
+**Location:** `hyperkey.py` (multiple functions)
 
-**Issue:** Passwords were copied to clipboard without warning users about the security implications:
+**Original Issue:** Passwords were copied to clipboard without warning or automatic clearing:
 - Clipboard managers may log passwords
 - Cloud sync services may upload clipboard contents
 - Other applications can access clipboard
 - Password remains until explicitly overwritten
 
-**Fix:**
-Added explicit warnings when password is copied to clipboard:
-```
-[!] WARNING: Password remains in clipboard until overwritten
-[!] Clipboard may be logged by password managers or sync services
-```
+**v2.1 Fix:** Added explicit warnings when password is copied to clipboard
 
-**Test Coverage:** Verified in `test_main_deterministic_output()`
+**v2.2 Enhancement (IMPLEMENTED):**
+- **Automatic clipboard clearing** with configurable timeout (default: 30 seconds)
+- **Countdown timer** showing time remaining before clearing
+- **Early exit option** - press Enter to skip clearing if password already pasted
+- **New command-line options:**
+  - `--clipboard-timeout SECONDS` - set custom timeout (1-3600 seconds)
+  - `--no-clipboard-clear` - disable automatic clearing entirely
+- **Cross-platform support** for Unix/Linux and Windows systems
+
+**Test Coverage:**
+- `test_secure_clear_clipboard()` - clipboard clearing function
+- `test_clipboard_timeout_handler()` - timeout countdown and clearing
+- `test_clipboard_timeout_early_exit()` - early exit functionality
+- `test_main_with_no_clipboard_clear()` - disable clearing flag
+- `test_main_with_clipboard_timeout()` - custom timeout value
 
 ---
 
@@ -107,7 +116,7 @@ Added explicit warnings when password is copied to clipboard:
 
 ## Test Suite Enhancements
 
-Added 6 new test cases covering:
+**v2.1:** Added 6 new test cases covering:
 1. Empty service name validation
 2. Path traversal attack prevention
 3. Weak passphrase rejection
@@ -115,7 +124,14 @@ Added 6 new test cases covering:
 5. Impossible policy detection
 6. Valid input acceptance
 
-**Test Results:** All 12 tests passing (100% success rate)
+**v2.2:** Added 5 new test cases covering:
+1. Clipboard clearing function
+2. Timeout countdown handler
+3. Early exit from timeout
+4. Integration with --no-clipboard-clear flag
+5. Integration with --clipboard-timeout option
+
+**Test Results:** All 17 tests passing (100% success rate)
 
 ---
 
@@ -150,8 +166,8 @@ python3 -m unittest discover -v -s tests
 ## Future Security Improvements
 
 Consider implementing:
-1. Automatic clipboard clearing after timeout
-2. Option to disable clipboard entirely
+1. ~~Automatic clipboard clearing after timeout~~ ✓ **IMPLEMENTED in v2.2**
+2. ~~Option to disable clipboard entirely~~ ✓ **IMPLEMENTED in v2.2** (via `--no-clipboard-clear`)
 3. Secure memory locking (if platform supports it)
 4. Rate limiting for repeated password generation attempts
 5. Optional audit logging for security-critical environments

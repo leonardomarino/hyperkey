@@ -2,8 +2,14 @@
 # -*- coding: utf-8 -*-
 """ hyperkey - SOTA Password Generator (Scrypt + SHA-3 + ChaCha20-DRBG)
     Optimized for Apple Silicon (M-Series)
-    
-    v2.1 - Merged improvements:
+
+    v2.2 - Latest improvements:
+    - Added automatic clipboard clearing with configurable timeout (default: 30s)
+    - New command-line options: --clipboard-timeout, --no-clipboard-clear
+    - Enhanced argument parsing with argparse for better UX
+    - Countdown timer with early exit option (press Enter to skip)
+
+    v2.1 - Previous improvements:
     - Fixed rejection sampling efficiency in CryptoRNG
     - Added domain separation for key derivation
     - Clarified password generation logic with explicit minimum vs. continue-sampling
@@ -17,6 +23,9 @@ import string
 import hashlib
 import gc
 import ssl
+import time
+import argparse
+import select
 from getpass import getpass
 from urllib.request import urlopen
 from urllib.error import URLError, HTTPError
@@ -255,6 +264,114 @@ def secure_zero(byte_obj):
             byte_obj[i] = 0
 
 
+def secure_clear_clipboard():
+    """
+    Clears clipboard by overwriting with empty string.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        if CLIPBOARD_ENABLED:
+            pyperclip.copy("")
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def clipboard_timeout_handler(timeout_seconds, output=print):
+    """
+    Countdown timer that clears clipboard after timeout.
+    Allows early exit by pressing any key.
+
+    Args:
+        timeout_seconds: Number of seconds to wait before clearing
+        output: Output function for messages (default: print)
+
+    Returns:
+        True if cleared after timeout, False if user exited early
+    """
+    output(f"[!] Clipboard will be cleared in {timeout_seconds} seconds (press Enter to exit early)")
+
+    start_time = time.time()
+    last_displayed = -1
+
+    try:
+        # Set stdin to non-blocking mode on Unix systems
+        if sys.platform != 'win32':
+            import termios
+            import tty
+
+            # Save original terminal settings
+            old_settings = termios.tcgetattr(sys.stdin)
+
+            try:
+                # Set terminal to raw mode for immediate key detection
+                tty.setraw(sys.stdin.fileno())
+
+                while True:
+                    elapsed = time.time() - start_time
+                    remaining = timeout_seconds - elapsed
+
+                    if remaining <= 0:
+                        # Timeout reached - clear clipboard
+                        output("\r[+] Clearing clipboard...                    ")
+                        secure_clear_clipboard()
+                        output("[+] Clipboard cleared")
+                        return True
+
+                    # Update countdown display (only when second changes)
+                    remaining_int = int(remaining) + 1
+                    if remaining_int != last_displayed:
+                        output(f"\r[!] Clearing in {remaining_int}s (press Enter to skip)...", end='', flush=True)
+                        last_displayed = remaining_int
+
+                    # Check for key press using select with short timeout
+                    readable, _, _ = select.select([sys.stdin], [], [], 0.1)
+                    if readable:
+                        # User pressed a key - exit early
+                        output("\r[!] Clipboard clearing cancelled by user    ")
+                        return False
+
+            finally:
+                # Restore original terminal settings
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+        else:
+            # Windows fallback: simpler polling-based approach
+            import msvcrt
+
+            while True:
+                elapsed = time.time() - start_time
+                remaining = timeout_seconds - elapsed
+
+                if remaining <= 0:
+                    output("\r[+] Clearing clipboard...                    ")
+                    secure_clear_clipboard()
+                    output("[+] Clipboard cleared")
+                    return True
+
+                remaining_int = int(remaining) + 1
+                if remaining_int != last_displayed:
+                    output(f"\r[!] Clearing in {remaining_int}s (press any key to skip)...", end='', flush=True)
+                    last_displayed = remaining_int
+
+                if msvcrt.kbhit():
+                    msvcrt.getch()  # Consume the key press
+                    output("\r[!] Clipboard clearing cancelled by user    ")
+                    return False
+
+                time.sleep(0.1)
+
+    except KeyboardInterrupt:
+        output("\r[!] Clipboard clearing cancelled by user    ")
+        return False
+    except Exception as e:
+        output(f"\r[!] Error during countdown: {e}            ")
+        return False
+
+
 def validate_inputs(service, passphrase, policy):
     """
     Validate inputs meet basic security and feasibility requirements.
@@ -302,13 +419,50 @@ def validate_inputs(service, passphrase, policy):
 
 
 def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLED):
-    output("[!] HyperKey (SOTA v2.1): Scrypt + SHA-3 + ChaCha20-DRBG")
-    
+    output("[!] HyperKey (SOTA v2.2): Scrypt + SHA-3 + ChaCha20-DRBG")
+
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description='HyperKey - Stateless password generator using Scrypt + SHA-3 + ChaCha20-DRBG',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  ./hyperkey.py seed.jpg green gmail
+  ./hyperkey.py seed.jpg yellow banking --clipboard-timeout 20
+  ./hyperkey.py seed.jpg red root-account --no-clipboard-clear
+  ./hyperkey.py https://example.com/seed.jpg green email
+
+Policies:
+  green  - 14 chars, 32MB RAM (daily accounts)
+  yellow - 20 chars, 64MB RAM (financial/email)
+  red    - 32 chars, 128MB RAM (root/crypto)
+  legacy - 8 chars,  32MB RAM (legacy systems)
+        """
+    )
+
+    parser.add_argument('seedfile', help='Path to seed file or HTTPS URL')
+    parser.add_argument('policy', choices=['green', 'yellow', 'red', 'legacy'],
+                       help='Security policy (green/yellow/red/legacy)')
+    parser.add_argument('service', nargs='?', help='Service name (optional, will prompt if not provided)')
+    parser.add_argument('passphrase_arg', nargs='?', metavar='passphrase',
+                       help='Master passphrase (optional, will prompt if not provided)')
+    parser.add_argument('--clipboard-timeout', type=int, default=30, metavar='SECONDS',
+                       help='Seconds to wait before clearing clipboard (default: 30)')
+    parser.add_argument('--no-clipboard-clear', action='store_true',
+                       help='Disable automatic clipboard clearing')
+
+    # Parse arguments (skip program name)
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit:
+        # argparse calls sys.exit() on error, we just re-raise
+        raise
+
     # Track mutable sensitive values for cleanup
     sensitive_values = []
-    
+
     try:
-        filename = argv[1]
+        filename = args.seedfile
 
         if filename.lower().startswith("http"):
             # Normalize URL to lowercase for security validation
@@ -337,26 +491,18 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
         else:
             with open(filename, "rb") as file_handle:
                 seed_data = BytesIO(file_handle.read())
-                
-        if argv[2].lower() in POLICIES:
-            policy = POLICIES[argv[2].lower()]
-        else:
-            output("[!] Policy defaulting to green")
-            policy = POLICIES["green"]
-            
-        if len(argv) >= 4:
-            service = argv[3]
+
+        policy = POLICIES[args.policy.lower()]
+
+        if args.service:
+            service = args.service
         else:
             service = getpass("service: ")
-            
-        if len(argv) >= 5:
-            passphrase_input = argv[4]
+
+        if args.passphrase_arg:
+            passphrase_input = args.passphrase_arg
         else:
             passphrase_input = getpass("[?] passphrase: ")
-            
-    except IndexError:
-        output("[?] usage: hyperkey seedfile policy [service] [passphrase]")
-        sys.exit(1)
     except ssl.SSLError as e:
         output(f"[!] SSL/TLS Error: {e}")
         output("[!] Could not verify remote server certificate")
@@ -437,8 +583,20 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
             try:
                 pyperclip.copy(p)
                 output("[+] Copied to clipboard")
-                output("[!] WARNING: Password remains in clipboard until overwritten")
-                output("[!] Clipboard may be logged by password managers or sync services")
+
+                # Handle clipboard clearing based on user preferences
+                if args.no_clipboard_clear:
+                    output("[!] WARNING: Password remains in clipboard until overwritten")
+                    output("[!] Clipboard may be logged by password managers or sync services")
+                else:
+                    # Validate timeout value
+                    timeout = max(1, min(args.clipboard_timeout, 3600))  # Clamp to 1-3600 seconds
+                    if timeout != args.clipboard_timeout:
+                        output(f"[!] WARNING: Timeout adjusted to valid range (1-3600s): {timeout}s")
+
+                    # Start countdown and clear clipboard
+                    clipboard_timeout_handler(timeout, output)
+
             except Exception as e:
                 output(f"[!] Failed to copy to clipboard: {e}")
 

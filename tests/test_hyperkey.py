@@ -2,7 +2,8 @@ import unittest
 import sys
 import os
 import string
-from unittest.mock import patch, MagicMock
+import time
+from unittest.mock import patch, MagicMock, call
 
 # Add parent directory to path so we can import hyperkey
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -64,7 +65,7 @@ class TestHyperKey(unittest.TestCase):
         print("[TEST] Password Complexity: OK")
 
     # --- 4. Integration Test (Main Function) ---
-    @patch('hyperkey.getpass') 
+    @patch('hyperkey.getpass')
     def test_main_deterministic_output(self, mock_getpass):
         """
         Full integration test.
@@ -72,41 +73,46 @@ class TestHyperKey(unittest.TestCase):
         """
         print("\n[TEST] Starting Full Integration Test...")
         mock_getpass.return_value = "passphrase123"
-        
+
         # Mock Clipboard (Logic verification only)
         mock_clip = MagicMock()
-        
+
         # Robust Fix: Inject mock if library is missing
         original_clip = getattr(hyperkey, 'pyperclip', None)
         hyperkey.pyperclip = mock_clip
-        
+
         # Mock file opening
         with patch('builtins.open', unittest.mock.mock_open(read_data=self.dummy_seed_content)):
-            
+
             # Reduce Scrypt cost for speed
             original_policy = hyperkey.POLICIES['green']
-            hyperkey.POLICIES['green'] = (14, 2, 2, 1, 1, False) 
-            
+            hyperkey.POLICIES['green'] = (14, 2, 2, 1, 1, False)
+
             try:
-                args = ['hyperkey.py', 'dummy_seed.bin', 'green', 'myservice']
-                
-                print("--> Running Main() Iteration 1:")
-                # CHANGE: output=print (Real printing!)
-                p1 = hyperkey.main(args, output=print, clipboard_enabled=True)
-                
-                print("\n--> Running Main() Iteration 2:")
-                p2 = hyperkey.main(args, output=print, clipboard_enabled=True)
-                
-                # Check consistency
-                self.assertEqual(p1, p2)
-                self.assertTrue(len(p1) > 0)
-                
-                # Verify clipboard
-                if mock_clip.copy.called:
-                    print("\n[TEST] Clipboard Logic: OK (Copy attempted)")
-                else:
-                    self.fail("Clipboard copy was not attempted")
-                
+                # Mock clipboard_timeout_handler to avoid terminal issues in test environment
+                with patch.object(hyperkey, 'clipboard_timeout_handler', return_value=True) as mock_handler:
+                    args = ['hyperkey.py', 'dummy_seed.bin', 'green', 'myservice']
+
+                    print("--> Running Main() Iteration 1:")
+                    # CHANGE: output=print (Real printing!)
+                    p1 = hyperkey.main(args, output=print, clipboard_enabled=True)
+
+                    print("\n--> Running Main() Iteration 2:")
+                    p2 = hyperkey.main(args, output=print, clipboard_enabled=True)
+
+                    # Check consistency
+                    self.assertEqual(p1, p2)
+                    self.assertTrue(len(p1) > 0)
+
+                    # Verify clipboard
+                    if mock_clip.copy.called:
+                        print("\n[TEST] Clipboard Logic: OK (Copy attempted)")
+                    else:
+                        self.fail("Clipboard copy was not attempted")
+
+                    # Verify timeout handler was called (default behavior)
+                    self.assertGreater(mock_handler.call_count, 0, "Timeout handler should be called")
+
             finally:
                 # Restore state
                 hyperkey.POLICIES['green'] = original_policy
@@ -124,7 +130,8 @@ class TestHyperKey(unittest.TestCase):
         dummy_print = MagicMock()
         with self.assertRaises(SystemExit) as cm:
             hyperkey.main(['hyperkey.py'], output=dummy_print)
-        self.assertEqual(cm.exception.code, 1)
+        # argparse exits with code 2 for argument errors
+        self.assertEqual(cm.exception.code, 2)
         print("[TEST] Error Handling: OK")
 
     # --- 6. Input Validation Tests ---
@@ -213,6 +220,201 @@ class TestHyperKey(unittest.TestCase):
             self.fail(f"Valid inputs were rejected: {e}")
 
         print("[TEST] Valid Input Acceptance: OK")
+
+    # --- 7. Clipboard Clearing Tests ---
+    def test_secure_clear_clipboard(self):
+        """Test clipboard clearing function."""
+        print("\n[TEST] Testing Clipboard Clearing...")
+
+        # Mock pyperclip
+        mock_clip = MagicMock()
+        original_clip = getattr(hyperkey, 'pyperclip', None)
+        original_enabled = hyperkey.CLIPBOARD_ENABLED
+
+        try:
+            # Test with clipboard enabled
+            hyperkey.pyperclip = mock_clip
+            hyperkey.CLIPBOARD_ENABLED = True
+
+            result = hyperkey.secure_clear_clipboard()
+            self.assertTrue(result, "Should return True when clipboard is cleared")
+            mock_clip.copy.assert_called_once_with("")
+
+            # Test with clipboard disabled
+            hyperkey.CLIPBOARD_ENABLED = False
+            result = hyperkey.secure_clear_clipboard()
+            self.assertFalse(result, "Should return False when clipboard is disabled")
+
+            # Test with exception
+            hyperkey.CLIPBOARD_ENABLED = True
+            mock_clip.copy.side_effect = Exception("Test error")
+            result = hyperkey.secure_clear_clipboard()
+            self.assertFalse(result, "Should return False on exception")
+
+        finally:
+            # Restore state
+            if original_clip:
+                hyperkey.pyperclip = original_clip
+            else:
+                delattr(hyperkey, 'pyperclip')
+            hyperkey.CLIPBOARD_ENABLED = original_enabled
+
+        print("[TEST] Clipboard Clearing: OK")
+
+    @patch('sys.platform', 'linux')
+    @patch('sys.stdin')
+    @patch('time.time')
+    @patch('time.sleep')
+    @patch('select.select')
+    def test_clipboard_timeout_handler(self, mock_select, mock_sleep, mock_time, mock_stdin):
+        """Test clipboard timeout countdown and clearing."""
+        print("\n[TEST] Testing Clipboard Timeout Handler...")
+
+        # Mock stdin
+        mock_stdin.fileno.return_value = 0
+
+        # Mock termios and tty
+        mock_termios = MagicMock()
+        mock_tty = MagicMock()
+
+        with patch.dict('sys.modules', {'termios': mock_termios, 'tty': mock_tty}):
+            # Mock time progression (6 iterations at 0.1s intervals = ~0.6s + overhead)
+            # Each iteration checks if remaining <= 0
+            mock_time.side_effect = [0, 0.1, 0.5, 0.9, 1.3, 1.7, 2.1]
+            # No key presses (select returns empty)
+            mock_select.return_value = ([], [], [])
+
+            mock_output = MagicMock()
+
+            # Mock clipboard clearing
+            with patch.object(hyperkey, 'secure_clear_clipboard', return_value=True) as mock_clear:
+                # Test timeout (2 seconds)
+                result = hyperkey.clipboard_timeout_handler(2, output=mock_output)
+
+                # Should complete timeout and clear
+                self.assertTrue(result, "Should return True after timeout")
+                mock_clear.assert_called_once()
+
+        print("[TEST] Clipboard Timeout Handler: OK")
+
+    @patch('sys.platform', 'linux')
+    @patch('sys.stdin')
+    @patch('time.time')
+    @patch('select.select')
+    def test_clipboard_timeout_early_exit(self, mock_select, mock_time, mock_stdin):
+        """Test early exit from clipboard timeout."""
+        print("\n[TEST] Testing Clipboard Early Exit...")
+
+        # Mock stdin
+        mock_stdin.fileno.return_value = 0
+
+        # Mock termios and tty
+        mock_termios = MagicMock()
+        mock_tty = MagicMock()
+
+        with patch.dict('sys.modules', {'termios': mock_termios, 'tty': mock_tty}):
+            # Mock time
+            mock_time.side_effect = [0, 0.1, 0.5]
+            # Simulate key press on second check
+            mock_select.side_effect = [([], [], []), ([mock_stdin], [], [])]
+
+            mock_output = MagicMock()
+
+            with patch.object(hyperkey, 'secure_clear_clipboard') as mock_clear:
+                # Test early exit
+                result = hyperkey.clipboard_timeout_handler(10, output=mock_output)
+
+                # Should exit early without clearing
+                self.assertFalse(result, "Should return False on early exit")
+                mock_clear.assert_not_called()
+
+        print("[TEST] Clipboard Early Exit: OK")
+
+    @patch('hyperkey.getpass')
+    def test_main_with_no_clipboard_clear(self, mock_getpass):
+        """Test main function with --no-clipboard-clear flag."""
+        print("\n[TEST] Testing --no-clipboard-clear Flag...")
+        mock_getpass.return_value = "passphrase123"
+
+        # Mock clipboard
+        mock_clip = MagicMock()
+        original_clip = getattr(hyperkey, 'pyperclip', None)
+        hyperkey.pyperclip = mock_clip
+
+        # Mock file opening
+        with patch('builtins.open', unittest.mock.mock_open(read_data=self.dummy_seed_content)):
+            # Reduce Scrypt cost for speed
+            original_policy = hyperkey.POLICIES['green']
+            hyperkey.POLICIES['green'] = (14, 2, 2, 1, 1, False)
+
+            try:
+                args = ['hyperkey.py', 'dummy_seed.bin', 'green', 'myservice', '--no-clipboard-clear']
+
+                # Mock timeout handler to verify it's not called
+                with patch.object(hyperkey, 'clipboard_timeout_handler') as mock_handler:
+                    p = hyperkey.main(args, output=MagicMock(), clipboard_enabled=True)
+
+                    # Verify clipboard was copied
+                    mock_clip.copy.assert_called()
+
+                    # Verify timeout handler was NOT called
+                    mock_handler.assert_not_called()
+
+                    self.assertTrue(len(p) > 0)
+
+            finally:
+                # Restore state
+                hyperkey.POLICIES['green'] = original_policy
+                if original_clip:
+                    hyperkey.pyperclip = original_clip
+                else:
+                    delattr(hyperkey, 'pyperclip')
+
+        print("[TEST] --no-clipboard-clear Flag: OK")
+
+    @patch('hyperkey.getpass')
+    def test_main_with_clipboard_timeout(self, mock_getpass):
+        """Test main function with custom clipboard timeout."""
+        print("\n[TEST] Testing --clipboard-timeout Flag...")
+        mock_getpass.return_value = "passphrase123"
+
+        # Mock clipboard
+        mock_clip = MagicMock()
+        original_clip = getattr(hyperkey, 'pyperclip', None)
+        hyperkey.pyperclip = mock_clip
+
+        # Mock file opening
+        with patch('builtins.open', unittest.mock.mock_open(read_data=self.dummy_seed_content)):
+            # Reduce Scrypt cost for speed
+            original_policy = hyperkey.POLICIES['green']
+            hyperkey.POLICIES['green'] = (14, 2, 2, 1, 1, False)
+
+            try:
+                args = ['hyperkey.py', 'dummy_seed.bin', 'green', 'myservice', '--clipboard-timeout', '10']
+
+                # Mock timeout handler to verify it's called with correct timeout
+                with patch.object(hyperkey, 'clipboard_timeout_handler', return_value=True) as mock_handler:
+                    p = hyperkey.main(args, output=MagicMock(), clipboard_enabled=True)
+
+                    # Verify clipboard was copied
+                    mock_clip.copy.assert_called()
+
+                    # Verify timeout handler was called with 10 seconds
+                    mock_handler.assert_called_once()
+                    call_args = mock_handler.call_args[0]
+                    self.assertEqual(call_args[0], 10, "Timeout should be 10 seconds")
+
+                    self.assertTrue(len(p) > 0)
+
+            finally:
+                # Restore state
+                hyperkey.POLICIES['green'] = original_policy
+                if original_clip:
+                    hyperkey.pyperclip = original_clip
+                else:
+                    delattr(hyperkey, 'pyperclip')
+
+        print("[TEST] --clipboard-timeout Flag: OK")
 
 if __name__ == '__main__':
     unittest.main()
