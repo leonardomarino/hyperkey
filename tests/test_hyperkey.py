@@ -121,11 +121,98 @@ class TestHyperKey(unittest.TestCase):
         """Ensure script exits gracefully on missing args."""
         print("\n[TEST] Verifying Error Handling...")
         # Use a dummy printer for this one to keep the error log clean-ish
-        dummy_print = MagicMock() 
+        dummy_print = MagicMock()
         with self.assertRaises(SystemExit) as cm:
             hyperkey.main(['hyperkey.py'], output=dummy_print)
         self.assertEqual(cm.exception.code, 1)
         print("[TEST] Error Handling: OK")
+
+    # --- 6. Input Validation Tests ---
+    def test_validate_empty_service(self):
+        """Test that empty service name is rejected."""
+        print("\n[TEST] Testing Empty Service Validation...")
+        policy = hyperkey.POLICIES['green']
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('', 'validpassphrase123', policy)
+        self.assertIn("cannot be empty", str(cm.exception))
+        print("[TEST] Empty Service Validation: OK")
+
+    def test_validate_service_path_traversal(self):
+        """Test that path traversal attempts are rejected."""
+        print("\n[TEST] Testing Path Traversal Protection...")
+        policy = hyperkey.POLICIES['green']
+
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('../etc/passwd', 'validpassphrase123', policy)
+        self.assertIn("invalid characters", str(cm.exception))
+
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('service/name', 'validpassphrase123', policy)
+        self.assertIn("invalid characters", str(cm.exception))
+
+        print("[TEST] Path Traversal Protection: OK")
+
+    def test_validate_weak_passphrase(self):
+        """Test that weak passphrases are rejected."""
+        print("\n[TEST] Testing Weak Passphrase Rejection...")
+        policy = hyperkey.POLICIES['green']
+
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('myservice', 'short', policy)
+        self.assertIn("at least 8 characters", str(cm.exception))
+        print("[TEST] Weak Passphrase Rejection: OK")
+
+    def test_validate_excessive_lengths(self):
+        """Test that excessively long inputs are rejected."""
+        print("\n[TEST] Testing Length Limits...")
+        policy = hyperkey.POLICIES['green']
+
+        # Service name too long
+        long_service = 'a' * 300
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs(long_service, 'validpassphrase123', policy)
+        self.assertIn("must not exceed 256", str(cm.exception))
+
+        # Passphrase too long
+        long_passphrase = 'a' * 2000
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('myservice', long_passphrase, policy)
+        self.assertIn("must not exceed 1024", str(cm.exception))
+
+        print("[TEST] Length Limits: OK")
+
+    def test_validate_impossible_policy(self):
+        """Test that policies with impossible requirements are rejected."""
+        print("\n[TEST] Testing Impossible Policy Detection...")
+
+        # Policy requiring more symbols than available
+        impossible_policy = (14, 2, 2, 15, 15, False)  # 15 symbols but only 10 available
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('myservice', 'validpassphrase123', impossible_policy)
+        self.assertIn("only", str(cm.exception))
+
+        # Policy where minimums exceed length
+        too_restrictive = (10, 5, 5, 5, 15, False)  # 15 chars needed but length is 10
+        with self.assertRaises(ValueError) as cm:
+            hyperkey.validate_inputs('myservice', 'validpassphrase123', too_restrictive)
+        self.assertIn("exceed password length", str(cm.exception))
+
+        print("[TEST] Impossible Policy Detection: OK")
+
+    def test_validate_valid_inputs(self):
+        """Test that valid inputs pass validation."""
+        print("\n[TEST] Testing Valid Input Acceptance...")
+        policy = hyperkey.POLICIES['green']
+
+        # Should not raise any exceptions
+        try:
+            hyperkey.validate_inputs('myservice', 'validpassphrase123', policy)
+            hyperkey.validate_inputs('gmail', 'this-is-a-secure-passphrase', policy)
+            hyperkey.validate_inputs('My_Service123', 'P@ssw0rd!SecurePhrase', policy)
+        except ValueError as e:
+            self.fail(f"Valid inputs were rejected: {e}")
+
+        print("[TEST] Valid Input Acceptance: OK")
 
 if __name__ == '__main__':
     unittest.main()

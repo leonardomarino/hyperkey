@@ -1,0 +1,8 @@
+# HyperKey Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core cryptographic library (OpenSSL backed)
+cryptography>=41.0.0
+
+# Clipboard support (optional but recommended)
+pyperclip>=1.8.0

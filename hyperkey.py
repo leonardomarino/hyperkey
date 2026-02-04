@@ -19,6 +19,7 @@ import gc
 import ssl
 from getpass import getpass
 from urllib.request import urlopen
+from urllib.error import URLError, HTTPError
 from io import BytesIO
 
 # --- Modern Cryptography Imports ---
@@ -244,7 +245,7 @@ def pwgen(policy, rng, max_iterations=100000):
 def secure_zero(byte_obj):
     """
     Best-effort secure memory cleanup for mutable bytearrays.
-    
+
     Note: This only works on bytearray objects. Immutable bytes objects
     from hashlib/hmac cannot be zeroed; we can only delete references
     and hope garbage collection clears them promptly.
@@ -252,6 +253,52 @@ def secure_zero(byte_obj):
     if isinstance(byte_obj, bytearray):
         for i in range(len(byte_obj)):
             byte_obj[i] = 0
+
+
+def validate_inputs(service, passphrase, policy):
+    """
+    Validate inputs meet basic security and feasibility requirements.
+
+    Args:
+        service: Service name string
+        passphrase: Master passphrase string
+        policy: Policy tuple (length, min_upper, min_numeric, min_symbols, cost, secure)
+
+    Raises:
+        ValueError: If inputs don't meet requirements
+    """
+    # Validate service name
+    if not service or len(service) < 1:
+        raise ValueError("Service name cannot be empty")
+    if len(service) > 256:
+        raise ValueError("Service name must not exceed 256 characters")
+
+    # Check for path traversal attempts
+    if '..' in service or '/' in service or '\\' in service:
+        raise ValueError("Service name contains invalid characters")
+
+    # Validate passphrase strength
+    if not passphrase or len(passphrase) < 8:
+        raise ValueError("Passphrase must be at least 8 characters for security")
+    if len(passphrase) > 1024:
+        raise ValueError("Passphrase must not exceed 1024 characters")
+
+    # Validate policy requirements are achievable
+    length, min_upper, min_numeric, min_symbols, _, _ = policy
+
+    if min_symbols > len(SAFE_SYMBOLS):
+        raise ValueError(
+            f"Policy requires {min_symbols} unique symbols but only "
+            f"{len(SAFE_SYMBOLS)} are available"
+        )
+
+    # Check that minimum requirements don't exceed password length
+    min_required = min_upper + min_numeric + min_symbols
+    if min_required > length:
+        raise ValueError(
+            f"Policy requirements ({min_required} characters) exceed "
+            f"password length ({length})"
+        )
 
 
 def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLED):
@@ -262,15 +309,29 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
     
     try:
         filename = argv[1]
-        
+
         if filename.lower().startswith("http"):
-            if not filename.lower().startswith("https://"):
+            # Normalize URL to lowercase for security validation
+            normalized_url = filename.lower()
+
+            if not normalized_url.startswith("https://"):
                 output("[!] ERROR: Remote seedfiles must use HTTPS")
                 output("[!] Change URL from http:// to https://")
                 sys.exit(1)
-            
+
+            # Validate it's actually a proper HTTPS URL
+            if not filename.startswith("https://") and not filename.startswith("HTTPS://"):
+                output("[!] ERROR: URL validation failed - mixed case in protocol")
+                sys.exit(1)
+
             output("[!] Retrieving seedfile via HTTPS")
+            output("[!] WARNING: Remote seed files should be used with caution")
             ssl_context = ssl.create_default_context()
+
+            # Use normalized https:// URL to prevent bypass attempts
+            if not filename.startswith("https://"):
+                filename = "https://" + filename[8:]  # Replace HTTPS:// with https://
+
             with urlopen(filename, context=ssl_context) as response:
                 seed_data = BytesIO(response.read())
         else:
@@ -300,8 +361,32 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
         output(f"[!] SSL/TLS Error: {e}")
         output("[!] Could not verify remote server certificate")
         sys.exit(1)
+    except HTTPError as e:
+        output(f"[!] HTTP Error: {e.code} - {e.reason}")
+        output("[!] Could not retrieve remote seed file")
+        sys.exit(1)
+    except URLError as e:
+        output(f"[!] URL Error: {e.reason}")
+        output("[!] Could not connect to remote server")
+        sys.exit(1)
+    except ValueError as e:
+        output(f"[!] Validation Error: {e}")
+        sys.exit(1)
+    except FileNotFoundError:
+        output(f"[!] Error: Seed file not found: {filename}")
+        sys.exit(1)
+    except PermissionError:
+        output(f"[!] Error: Permission denied accessing: {filename}")
+        sys.exit(1)
     except Exception as e:
-        output(f"Error during setup: {e}")
+        output(f"[!] Error during setup: {e}")
+        sys.exit(1)
+
+    # Validate inputs before proceeding with cryptographic operations
+    try:
+        validate_inputs(service, passphrase_input, policy)
+    except ValueError as e:
+        output(f"[!] Input Validation Failed: {e}")
         sys.exit(1)
 
     cost_power = policy[4]
@@ -352,9 +437,11 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
             try:
                 pyperclip.copy(p)
                 output("[+] Copied to clipboard")
+                output("[!] WARNING: Password remains in clipboard until overwritten")
+                output("[!] Clipboard may be logged by password managers or sync services")
             except Exception as e:
                 output(f"[!] Failed to copy to clipboard: {e}")
-                
+
         output("[!] Done")
         return p
         
@@ -373,13 +460,22 @@ def main(argv, output=print, passphrase=True, clipboard_enabled=CLIPBOARD_ENABLE
 
 
 def droidMain():
-    sys.exit(0)
+    """
+    Android/Termux entry point.
+
+    Note: Android support is not fully implemented in this version.
+    Use standard command-line interface instead.
+    """
+    print("[!] ERROR: Android/Termux support is not fully implemented")
+    print("[!] Please use the standard command-line interface:")
+    print("[!] ./hyperkey.py [SEED_FILE] [POLICY] [SERVICE_NAME] [PASSPHRASE]")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
     if not DROID_ENABLED:
-        p = main(argv) 
+        p = main(argv)
     else:
         p = droidMain()
-    
+
     sys.exit(0)
